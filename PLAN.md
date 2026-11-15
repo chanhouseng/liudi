@@ -222,9 +222,15 @@ interface CaseValuation {
 ### M0 · 骨架（11/15）
 
 **T01 初始化**
-- 产出：`apps/web`（Vite+React+TS+Tailwind）、`functions/vision` 空壳、ESLint、路径别名 `@/`
-- 验收：`npm run build` 产出 `< 200KB gzip` 空壳（全局硬上限是 `PRD.md` NFR-2 的 250KB）；`npm run dev -- --host` 后手机 Safari 能通过局域网 IP 打开
-- 提示词要点：不要模板页、不要 demo 组件、不要装 UI 库
+- 产出：`apps/web`（Vite + React 19 + TS strict + Tailwind v4）、`functions/vision` 空壳、ESLint（flat config）、路径别名 `@/`
+- 验收：`npm run build` 产出 `< 200KB gzip` 空壳（全局硬上限是 `PRD.md` NFR-2 的 250KB）；手机 Safari 通过 `https://<局域网IP>:5173` 打开正常
+- 提示词要点：
+  - 用 `npm create vite@latest -- --template react-ts`，**删掉 App.css / logo / 计数器**
+  - Tailwind v4 用 `@tailwindcss/vite` 插件 + CSS 里 `@import "tailwindcss"`，**不要生成 tailwind.config.js**（v4 是 CSS-first，`@theme` 定义 token）
+  - 别名要在 `vite.config.ts` 的 `resolve.alias` 和 `tsconfig` 的 `paths` **两处都配**
+  - 装 `@vitejs/plugin-basic-ssl`：iOS 的 `getUserMedia` 只在安全上下文可用，`http://192.168.x.x` 会直接被拒，不解决的话 T06 的相机会卡死
+  - `functions/vision` 只放 `package.json` + `index.js` + `README`，先不部署
+  - 不要模板页、不要 demo 组件、不要装 UI 库
 
 **T02 设计系统**
 - 产出：`ui/` 里的 **10 个**原子组件：`Button / Field / Card / Rule / Badge / Stat / Table / Sheet / Skeleton / Toast`；`tokens.css`（含 `--font-serif / --font-sans / --font-mono` 系统字体栈）
