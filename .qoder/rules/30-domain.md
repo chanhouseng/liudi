@@ -12,6 +12,8 @@
 - 视觉模型**只描述可见事实**："12×8cm 泛黄污渍，边缘不规则扩散，疑似渗水后干燥"
 - 判定由 `domain/rules.ts` 完成：材质 × 租期 × 位置 × 法条
 - 模型可以错，规则可以审。**AI 永远不下责任结论。**
+- **对比的"找不同"不是 AI 干的**：ORB+RANSAC 对齐、SSIM 找区域、连通域出 bbox。AI 只接手"这块差异是什么"。
+- 理由：VLM 给不出可靠坐标、同一图两次结果不同、8 区域 8 次调用等不起、SSIM 能单测能复现。
 
 ## 规则引擎
 `judge(finding, ctx) => { cls, ruleId, reason, legalRefs[], confidence }`

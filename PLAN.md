@@ -316,7 +316,7 @@ interface CaseValuation {
 **T14 对比视图**
 - 产出：`features/compare/Compare.tsx`
 - 验收：滑块对比 + 差异框 + 扫描线动效，60fps 不掉帧
-- 提示词要点：三栏（入住 / 退租 / 并排）；差异框 hover 显示 AI 描述；`prefers-reduced-motion` 关闭动效
+- 提示词要点：三栏（入住 / 退租 / 并排）；**点**差异框弹出 AI 描述气泡（手机没有 hover，不要写 hover 交互）；`prefers-reduced-motion` 关闭动效
 
 ---
 
@@ -329,8 +329,8 @@ interface CaseValuation {
 
 **T16 VLM 调用与 schema 校验**
 - 产出：`lib/api/vision.ts`
-- 验收：模型胡说时（返回非 JSON / 字段缺失）该条被丢弃，UI 显示"AI 未能识别"，不阻塞流程
-- 提示词要点：提示词见 §7；用 zod 校验；失败重试 1 次；**绝不编造结果**
+- 验收：模型胡说时（返回非 JSON / 字段缺失）该条被丢弃，UI 显示"AI 未能识别"，**并出现 10 类现象手选控件**，不阻塞流程
+- 提示词要点：提示词见 §7；用 zod 校验；失败重试 1 次；**绝不编造结果**；**只描述不判责**——返回里出现"应当赔偿""房东责任"之类措辞即视为脏数据丢弃
 
 **T17 规则引擎**
 - 产出：`domain/rules.ts` + `domain/rules.test.ts`
