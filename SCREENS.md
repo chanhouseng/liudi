@@ -30,10 +30,24 @@
 **不要 `box-shadow`。** 分层用 `1px solid var(--rule)` + 留白。
 
 ### 字体
-- 标题 / 金额：`Noto Serif SC`，字重 600，`letter-spacing: -0.01em`
-- 正文 / UI：`Noto Sans SC`
-- 哈希 / 编号 / 表计：`JetBrains Mono`
-- 全部**本地打包**（`/public/fonts`），不走 CDN
+
+**不加载任何 webfont。** 中文 webfont 动辄 5–9MB，会直接击穿「LCP < 3s」和「初始 JS < 250KB」。用系统字体栈，零网络请求、零闪动。
+
+```css
+--font-serif: "Songti SC", "STSong", "Source Han Serif SC",
+              "Noto Serif CJK SC", "SimSun", serif;
+--font-sans:  -apple-system, "PingFang SC", "HarmonyOS Sans SC", "MiSans",
+              "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+--font-mono:  "SF Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+```
+
+- 标题 / 金额：`--font-serif`，字重 600，`letter-spacing: -0.01em`
+- 正文 / UI：`--font-sans`
+- 哈希 / 编号 / 表计：`--font-mono`，配 `font-variant-numeric: tabular-nums`
+
+**降级预期**：iOS 上有 Songti SC（很好看）；Android 多数机型没有中文衬线，会落到黑体——**接受这个降级，不要为了统一去下 webfont**。
+
+**唯一的例外是 PDF 导出**：jsPDF 渲染中文必须嵌入字体。做法是**导出时才懒加载子集字体**（≤ 2MB，不进首屏），见 `PLAN.md` T09。
 
 ### 版式
 - 手机左右边距 20px；桌面 ≥768px 时容器最大 480px 居中

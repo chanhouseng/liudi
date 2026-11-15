@@ -223,13 +223,13 @@ interface CaseValuation {
 
 **T01 初始化**
 - 产出：`apps/web`（Vite+React+TS+Tailwind）、`functions/vision` 空壳、ESLint、路径别名 `@/`
-- 验收：`npm run build` 产出 `< 200KB gzip` 空壳；手机 Safari 能打开
+- 验收：`npm run build` 产出 `< 200KB gzip` 空壳（全局硬上限是 `PRD.md` NFR-2 的 250KB）；`npm run dev -- --host` 后手机 Safari 能通过局域网 IP 打开
 - 提示词要点：不要模板页、不要 demo 组件、不要装 UI 库
 
 **T02 设计系统**
-- 产出：`ui/` 里的 `Button / Field / Card / Rule / Badge / Stat / Table / Sheet / Skeleton`；`tokens.css`
-- 验收：所有组件只有 2px 圆角、无 box-shadow、用 1px 线分层
-- 提示词要点：按 `DESIGN.md §2` 的 token 表实现；给出每个组件的 4 种状态（default/focus/disabled/loading）；不要引入任何组件库
+- 产出：`ui/` 里的 **10 个**原子组件：`Button / Field / Card / Rule / Badge / Stat / Table / Sheet / Skeleton / Toast`；`tokens.css`（含 `--font-serif / --font-sans / --font-mono` 系统字体栈）
+- 验收：所有组件只有 2px 圆角、无 box-shadow、用 1px 线分层；**不加载任何 woff/ttf**
+- 提示词要点：按 `SCREENS.md §0` 的 token 表实现；给出每个组件的 4 种状态（default/focus/disabled/loading）；不要引入任何组件库；`Toast` 是 `SCREENS.md` 全局组件表里的，容易漏
 
 **T03 数据层**
 - 产出：`lib/idb.ts`（Dexie schema v1）、`domain/repo.ts`（CRUD + 级联删除 + exportAll/importAll）
@@ -273,6 +273,7 @@ interface CaseValuation {
 - 产出：`features/capture/Deed.tsx`、`features/export/deedPdf.ts`
 - 验收：导出的 PDF 有封面（地址/租期/押金/生成时间）、照片墙（每张带编号+时间+哈希前 12 位）、瑕疵清单、哈希链页
 - 提示词要点：A4、衬线标题、页脚带页码；不要插 logo 大图；文件 < 8MB
+- **中文必须用 jsPDF 的 `addFileToVFS` + `addFont` 嵌入子集字体**（≤ 2MB，导出时才 `import()`，绝不能进首屏）。没有这一步，中文会渲染成方块
 
 **T10 分享给房东确认**
 - 产出：生成一张长图（不是链接）+ 一句现成话术
