@@ -178,3 +178,42 @@
 
 - 真机检查 PDF 视觉（A4 打印观感）与微信长图清晰度（JPEG 0.9）
 - SEND_SCRIPT 去掉称呼「X 哥/姐，」是否符合预期（范围内无房东称呼字段）
+
+---
+
+## 2026-11-15 · T11 对比入口 + 退租对齐拍摄 + T12 配准（ORB+RANSAC）
+
+**做了什么**
+
+- `lib/register.ts`（T12）：OpenCV.js 加载器（`?url` 资产 + fetch 流式读取 → 真实百分比进度回调 → Blob URL 注入 script → 轮询 `cv.Mat` 就绪）+ `registerPair`（双图降采样 512 灰度 → ORB 800 → BFMatcher knn k=2 + Lowe 0.75 → findHomography RANSAC 3.0 → 内点 ≥ 20 门槛，H 换算回原始分辨率）+ `warpTo`（按 H 重采样，供 T13 差异检测内部用，不展示）；`setOpenCv` 注入缝供 Node 单测；加载失败返回 `load-failed`，不阻断流程
+- `lib/register.test.ts`：确定性纹理夹具（种子随机色块+渐变+网格），640×480 平移已知图对（dx=24,dy=16，工作分辨率 0.8 倍，scaleHomography 被真实覆盖）；断言内点 ≥ 20、四角误差 < 3% 边长、空白图 → few-inliers、warpTo 后中心区域逐像素接近
+- `lib/idb.ts`（T11）：`addSlotPhoto` 增加可选 `phase`（默认 move_in，行为不变）；新增 `getSlotPhotoByPhase`（某点位指定相的最新一张）、`listCompareSlots`（房间按模板序 × 槽位按模板序，标记 hasMoveIn/hasMoveOut）
+- `features/capture/useCamera.ts`：从 Camera.tsx 抽出相机生命周期 hook（启动/降级 fileMode/常亮锁/切后台恢复/快门/相册/闪光/待确认流），Camera 与 Align 共用；Camera.tsx 改为消费 hook，UI 与行为不变
+- `features/compare/Align.tsx`（S08）：退租拍摄页——入住参考帧 35% 透明度叠加（单指拖动/双指缩放 0.4–3×/双指旋转，pointer events 直接写 ref+transform 不走 setState）+ 参考帧开关 + 引导三步逐条点亮（700ms stagger）+ 「对不齐也没关系，下一步可以手动调。」+ 拍好了 → `addSlotPhoto(..., 'move_out')` → 回对比列表；无入住照片的点位显示「这个点位没有入住照片，直接拍退租也可以。」
+- `features/compare/ComparePage.tsx`：对比入口改为槽位清单（已对齐 n / 18 · 房间分组 · 每行状态 可对比/待拍退租/缺入住底稿/未拍），全无入住时显示文案库「先拍退租照片，才有得比。」+ 去取证按钮；路由 `/case/:id/compare/:roomId/:slotId` → Align
+
+**遇到的问题与解法**
+
+1. **scaleHomography 方向反了**（写时自察）：正确是 `H_full = S_in⁻¹ · H_work · S_out`，初版写成 `S_in · H_work · S_out⁻¹` → 修正并用 640×480 夹具（缩放 ≠ 1）让测试真正覆盖。
+2. **opencv.js 的 Module 是 thenable**（自带 `then`）：`Promise.resolve(cvModule)` / `await` 它会被当作 thenable 永远挂起（vite 单测里连 3 秒 watchdog 都不触发）→ `loadOpenCV` 改为返回包装对象 `{ cv }`，任何 promise 都不直接 resolve Module 本体。**浏览器路径同样会中招，等于提前排掉一颗线上雷。**
+3. **vitest 环境 hook 内 await 挂起**：就绪轮询放 `beforeAll` 必挂、放 `it` 内正常 → 改为惰性单例 `ensureReady()` 在首个用例内加载（夹具构造一并放入）；opencv 加载走 `createRequire` 绕开 vite-node 对 13MB UMD 的转换。
+4. **`new URL(node_modules 路径, import.meta.url)` 在 monorepo 里越界**，Vite 不发射资产（dist 无 opencv）→ 改 `import opencvUrl from '@techstark/opencv-js/dist/opencv.js?url'`，临时在 Align 里引用 register 验证发射成功（`opencv-*.js` 独立文件）后移除——T13 接线 S09 时资产会自然出现。
+5. 浏览器自动化验证到对比页为止：槽位清单/空态/状态徽标实测正确；进入 Align 后 in-app 浏览器无原生 surface（此前截图已报 NATIVE_BROWSER_VIEWPORT_UNAVAILABLE），getUserMedia 挂起导致页面级操作全部超时，Align 交互改由真机验证。
+
+**遗留**
+
+- 【流程偏差待确认】SCREENS S08 把对齐相机定义在 `/case/:id/compare`；实际实现为 `/compare` 槽位清单 + `/compare/:roomId/:slotId` 对齐页（一屏一点位，符合「逐个点位重拍」的流程，也避免相机页直接承担列表职责）。若按 S08 原样，需要把清单挪去别处或去掉清单——见「需要人确认的」。
+- S05 取证相机页的「参考帧叠加」由 Align 覆盖（取证流程保持只拍入住）；S09 处理中页 + S10 结果页在 T13。
+- register 的加载进度 UI（真实百分比）待 T13 S09 页面消费。
+
+**验收数据**
+
+- `npm run test`：**41/41**（新增 register 3：平移图对内点 251/256 ≥ 20 ✅、四角误差均值 < 3% ✅（H≈[1,0.003,23.3; 0,1.002,15.7]，真值 (24,16)）；空白图 few-inliers ✅；warpTo 中心区域逐像素差 < 2 ✅。新增 idb 2：move_out 独立 capture + 两相照片分属 ✅、listCompareSlots 模板序 + 两相标记 ✅）
+- `npm run build`：初始 JS **139.51KB gzip**（< 250KB ✅）；`npm run lint` 0 错 0 警
+- 浏览器实测（/compare）：加载骨架 → 槽位清单「已对齐 0 / 18」+ 6 房间 18 槽位按模板序；玄关/门与门锁=「待拍退租」（hasMoveIn 来自已有 3 张 door 入住照），其余=「未拍」；无入住案件场景显示文案库空态 + 去取证；控制台零报错
+- 浏览器未验证（环境无 surface）：Align 参考帧叠加与手势、fileMode 上传保存 move_out、Camera 页回归——已列入真机清单
+
+**需要人确认的**
+
+- 【阻塞级流程确认】对比入口结构按「槽位清单 + 逐点位对齐页」实现（偏离 S08 的单页定义）——是否接受？不接受则回改。
+- 真机验证：Align 双指缩放/旋转手感、参考帧 35% 透明度是否够看清、fileMode 保存 move_out 全链路、Camera 页回归（重构后）。
