@@ -1,0 +1,7 @@
+{
+  "name": "@liudi/functions-vision",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}

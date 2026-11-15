@@ -1,0 +1,67 @@
+:root {
+  --paper: #FBFAF7;
+  --surface: #FFFFFF;
+  --ink: #14161A;
+  --ink-2: #5A6170;
+  --ink-3: #8A909C;
+  --rule: #E2DFD8;
+  --accent: #17325E;
+  --cls-a: #6B7A8F;
+  --cls-b: #2E7D5B;
+  --cls-c: #B26A00;
+  --alert: #B3261E;
+  --radius: 2px;
+
+  /* 字体本地打包后在此追加 @font-face 家族名；当前为系统栈兜底 */
+  --font-ui: "Noto Sans SC", "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --font-doc: "Noto Serif SC", "Songti SC", "STSong", "SimSun", Georgia, serif;
+  --font-code: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+/* 映射到 Tailwind v4：bg-paper / text-ink-2 / border-rule / rounded-doc / font-serif 等 */
+@theme inline {
+  --color-*: initial;
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-accent: var(--accent);
+  --color-cls-a: var(--cls-a);
+  --color-cls-b: var(--cls-b);
+  --color-cls-c: var(--cls-c);
+  --color-alert: var(--alert);
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  --radius-*: initial;
+  --radius-doc: var(--radius);
+
+  --font-sans: var(--font-ui);
+  --font-serif: var(--font-doc);
+  --font-mono: var(--font-code);
+}
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
