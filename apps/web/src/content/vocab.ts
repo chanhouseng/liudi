@@ -1,5 +1,5 @@
-// 现象 / 严重度的 UI 中文名，与 CONTENT.md §3.2 判定表对应；改动需同步 CONTENT.md。
-import type { Phenomenon, Severity } from '@/domain/types'
+// 现象 / 严重度 / 判定类别的 UI 中文名，与 CONTENT.md §3 判定表对应；改动需同步 CONTENT.md。
+import type { JudgementClass, Phenomenon, Severity } from '@/domain/types'
 
 export const PHENOMENON_LABELS = {
   stain: '污渍',
@@ -19,3 +19,9 @@ export const SEVERITY_LABELS = {
   moderate: '中度',
   severe: '重度',
 } as const satisfies Record<Severity, string>
+
+export const CLS_LABELS = {
+  A: '入住即有',
+  B: '正常损耗',
+  C: '人为损坏',
+} as const satisfies Record<JudgementClass, string>

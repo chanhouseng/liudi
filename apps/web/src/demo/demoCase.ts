@@ -27,3 +27,15 @@ export const demoFindings: DemoFindingRow[] = [
   { no: 'F-01', slot: '墙面-北', phenomenon: 'stain', surface: 'wall', severity: 'moderate' },
   { no: 'F-02', slot: '地面', phenomenon: 'scratch', surface: 'floor', severity: 'light' },
 ]
+
+// 演示扣款消息（DEMO.md §1.1 原文）。定损页演示态用它跑真实的拆解 + 定损引擎，
+// 输出随现行价格库与演示判定走，不等同 DEMO.md §1.2 的表格（那组数字待 P4 核价）。
+export const demoDeductionText = [
+  '房子我看了，问题不少：',
+  '1. 墙面到处是印子和钉眼，要整面重新刷，材料加人工 1400',
+  '2. 保洁没做干净，我另外请人打扫 600',
+  '3. 门锁不好转，换锁 400',
+  '4. 空调不制冷，加氟 300',
+  '5. 凉席、床单、热水壶都不见了，算 500',
+  '一共 3200，剩下的我转你。',
+].join('\n')

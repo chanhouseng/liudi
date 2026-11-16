@@ -471,3 +471,74 @@ export async function createCaseWithRooms(c: Case, kinds: RoomKind[]): Promise<v
     )
   })
 }
+
+export interface JudgementRow {
+  finding: Finding
+  roomLabel: string
+  judgement: Judgement | undefined
+}
+
+// 判定列表（S11）：案件全部 finding + 对应判定 + 房间名。房间按模板序，findings 按房间内 bbox 位置序。
+export async function listCaseFindings(caseId: ID): Promise<JudgementRow[]> {
+  const rooms = await listRooms(caseId)
+  const roomById = new Map(rooms.map((r) => [r.id, r]))
+  const roomIds = rooms.map((r) => r.id)
+  const findings = roomIds.length
+    ? await db.findings.where('roomId').anyOf(roomIds).toArray()
+    : []
+  const findingIds = findings.map((f) => f.id)
+  const judgements = findingIds.length
+    ? await db.judgements.where('findingId').anyOf(findingIds).toArray()
+    : []
+  const judgementByFinding = new Map(judgements.map((j) => [j.findingId, j]))
+  const roomOrder = new Map(roomIds.map((rid, i) => [rid, i]))
+  return findings
+    .sort((a, b) => {
+      const ra = roomOrder.get(a.roomId) ?? 99
+      const rb = roomOrder.get(b.roomId) ?? 99
+      if (ra !== rb) return ra - rb
+      if (a.bbox[1] !== b.bbox[1]) return a.bbox[1] - b.bbox[1]
+      return a.bbox[0] - b.bbox[0]
+    })
+    .map((finding) => ({
+      finding,
+      roomLabel: roomById.get(finding.roomId)?.label ?? '',
+      judgement: judgementByFinding.get(finding.id),
+    }))
+}
+
+export interface ConfirmFindingItem {
+  finding: Finding
+  judgement: Judgement
+}
+
+// 逐条确认落库：替换同一 (房间, 点位, 退租相) 下的旧 findings（含判定），再写入新一批。
+export async function replaceSlotFindings(
+  roomId: ID,
+  slotId: string,
+  items: ConfirmFindingItem[],
+): Promise<void> {
+  await db.transaction('rw', [db.findings, db.judgements], async () => {
+    // 同房间退租相的旧照片 id 集合（重拍会换 photo id，按点位与相定位而非单个 photo id）
+    const captures = await db.captures.where('roomId').equals(roomId).toArray()
+    const outCaptureIds = captures.filter((c) => c.phase === 'move_out').map((c) => c.id)
+    const stalePhotoIds = new Set<string>()
+    for (const cid of outCaptureIds) {
+      const photos = await db.photos.where('captureId').equals(cid).toArray()
+      for (const p of photos) {
+        if (p.slot === slotId) stalePhotoIds.add(p.id)
+      }
+    }
+    const staleFindingIds: ID[] = []
+    if (stalePhotoIds.size > 0) {
+      const roomFindings = await db.findings.where('roomId').equals(roomId).toArray()
+      for (const f of roomFindings) {
+        if (f.photoOutId && stalePhotoIds.has(f.photoOutId)) staleFindingIds.push(f.id)
+      }
+    }
+    await db.judgements.bulkDelete(staleFindingIds)
+    await db.findings.bulkDelete(staleFindingIds)
+    await db.findings.bulkPut(items.map((i) => i.finding))
+    await db.judgements.bulkPut(items.map((i) => i.judgement))
+  })
+}

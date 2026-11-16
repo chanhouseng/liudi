@@ -261,3 +261,42 @@ export async function warpTo(
     dst.delete()
   }
 }
+
+// ---- 手动对齐（配准失败时的降级路径）----
+
+export interface ManualGesture {
+  tx: number
+  ty: number
+  scale: number
+  rot: number
+}
+
+export interface ViewportGeom {
+  containerW: number
+  containerH: number
+  inW: number
+  inH: number
+  outW: number
+  outH: number
+}
+
+// 把 overlay 上的手势换算成 3×3 仿射（行主序，退租像素 → 入住像素）。
+// 约定：两图都按 contain 铺进容器；退租 overlay 元素摆在自己的 contain 矩形处，
+// transformOrigin '0 0'，transform = translate(tx,ty) rotate(rot) scale(scale)。
+export function gestureToHomography(g: ManualGesture, geo: ViewportGeom): number[] {
+  const kOut = Math.min(geo.containerW / geo.outW, geo.containerH / geo.outH)
+  const kIn = Math.min(geo.containerW / geo.inW, geo.containerH / geo.inH)
+  const offOutX = (geo.containerW - geo.outW * kOut) / 2
+  const offOutY = (geo.containerH - geo.outH * kOut) / 2
+  const offInX = (geo.containerW - geo.inW * kIn) / 2
+  const offInY = (geo.containerH - geo.inH * kIn) / 2
+  const rad = (g.rot * Math.PI) / 180
+  const cos = Math.cos(rad) * g.scale
+  const sin = Math.sin(rad) * g.scale
+  const k = kOut / kIn
+  return [
+    cos * k, -sin * k, (offOutX + g.tx - offInX) / kIn,
+    sin * k, cos * k, (offOutY + g.ty - offInY) / kIn,
+    0, 0, 1,
+  ]
+}

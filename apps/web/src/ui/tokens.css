@@ -56,6 +56,20 @@ body {
   outline-offset: 2px;
 }
 
+/* 对比页扫描线（SCREENS S10）：自上而下 600ms；reduced-motion 由上面的全局规则关闭 */
+@keyframes scanline {
+  from {
+    top: 0;
+  }
+  to {
+    top: 100%;
+  }
+}
+
+.scanline {
+  animation: scanline 600ms linear forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

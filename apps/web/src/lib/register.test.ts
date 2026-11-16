@@ -2,7 +2,7 @@ import { createRequire } from 'node:module'
 
 import { describe, expect, it } from 'vitest'
 
-import { registerPair, setOpenCv, warpTo } from './register'
+import { registerPair, gestureToHomography, setOpenCv, warpTo } from './register'
 
 // opencv.js 的 Mat 是 WASM 初始化完成后异步挂上的，require 后必须轮询就绪；
 // 走 createRequire 绕开 vite-node 对 13MB UMD 的转换。
@@ -147,4 +147,35 @@ describe('registerPair', () => {
     }
     expect(sum / n).toBeLessThan(2)
   }, 60000)
+})
+
+describe('手动对齐手势换算', () => {
+  const geom = { containerW: 400, containerH: 300, inW: 800, inH: 600, outW: 200, outH: 150 }
+
+  function apply(H: number[], x: number, y: number): [number, number] {
+    const w = H[6] * x + H[7] * y + H[8]
+    return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w]
+  }
+
+  it('无手势：退租画幅完整映射到入住画幅', () => {
+    const H = gestureToHomography({ tx: 0, ty: 0, scale: 1, rot: 0 }, geom)
+    expect(apply(H, 0, 0)).toEqual([0, 0])
+    expect(apply(H, 200, 150)[0]).toBeCloseTo(800, 5)
+    expect(apply(H, 200, 150)[1]).toBeCloseTo(600, 5)
+  })
+
+  it('平移按两图缩放比换算到入住像素坐标', () => {
+    const H = gestureToHomography({ tx: 30, ty: 10, scale: 1, rot: 0 }, geom)
+    // 容器 400 宽显示 200 宽的退租图（kOut=2），入住图 800 宽缩到 0.5：净放大 4 倍
+    expect(apply(H, 0, 0)[0]).toBeCloseTo(60, 5)
+    expect(apply(H, 0, 0)[1]).toBeCloseTo(20, 5)
+  })
+
+  it('旋转 90° 后角点走向正确', () => {
+    const H = gestureToHomography({ tx: 0, ty: 0, scale: 1, rot: 90 }, geom)
+    const [x, y] = apply(H, 10, 0)
+    // 退租 (10,0) 显示在 (20,0)，CSS 顺时针转 90° → (0,20)，再除 kIn=0.5 → (0,40)
+    expect(x).toBeCloseTo(0, 5)
+    expect(y).toBeCloseTo(40, 5)
+  })
 })

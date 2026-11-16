@@ -217,3 +217,243 @@
 
 - 【阻塞级流程确认】对比入口结构按「槽位清单 + 逐点位对齐页」实现（偏离 S08 的单页定义）——是否接受？不接受则回改。
 - 真机验证：Align 双指缩放/旋转手感、参考帧 35% 透明度是否够看清、fileMode 保存 move_out 全链路、Camera 页回归（重构后）。
+
+---
+
+## 2026-11-15 · BUG-07 哈希链守卫 + T13 差异检测 + T14 对比处理页与结果页
+
+**做了什么**
+
+- **BUG-07**：`lib/image.ts` 在 `processImage` 最前面加 `assertSubtle()`（先于一切解码，Node 单测也能直接覆盖该分支）；`crypto.subtle` 不可用 → 抛「当前环境无法生成校验指纹，请用 HTTPS 打开」，不再返回空哈希让证据链静默死亡（对应 FR-205 / NFR-5）
+- **T13**：`lib/diff.ts` 纯函数（`ImageData → DiffRegion[]`，不碰 DOM 不 import Dexie）——双图面积均值重采样到 512 长边工作网格 → sRGB→LAB(D65) → 三通道各自 8×8 窗口 SSIM（C1/C2 按通道量程取值）→ 三通道最小值 < 0.72 为差异 → 膨胀+腐蚀闭运算 → 8 邻接连通域 → 面积 > 全图 0.3% → 强度 = mean(1−smin) 降序 → 截 8 个，bbox 归一化
+- `lib/diff.test.ts`：mulberry32 确定性夹具 5 组（暗渍/亮划痕/彩色残留/双缺陷/泛黄噪点渍）+ 相同图 + 12 渍截断
+- **T14**：`features/compare/Compare.tsx`（S09 处理页编排）——懒加载路由 `/case/:id/compare/:roomId/:slotId/result`，三段进度（对齐 → 找不同 → AI 看一眼【占位「待接入」，无假数据】），opencv 下载真实百分比，每段 8 秒显示「这一步有点慢，可以跳过。」+ 跳过按钮；配准失败不弹错，直接转手动对齐；diff 段失败如实显示失败视图
+- `features/compare/ManualAlign.tsx`：拖动/双指缩放旋转 → `gestureToHomography`（`lib/register.ts` 新增纯函数 + 3 单测）→ `warpAffineImageData`（canvas 仿射，**手动路径完全不依赖 OpenCV**——引擎加载失败也能走完全程）
+- `features/compare/CompareResult.tsx`（S10 结果页）：滑块对比（pointer 拖动直写 clipPath，不走 setState）+ 并排看切换 + 扫描线动效（600ms）+ 差异框与 F-编号角标错峰浮现（600ms + i×120ms transitionDelay）+ Sheet 详情（裁剪图 + 强度% + 像素估算 + AI 占位文案）+ 文案库空态原文 + 返回点位清单；`prefers-reduced-motion` 由 tokens.css 全局开关接管
+- `App.tsx`：Compare 路由 `lazy` + Suspense；`lib/image.ts` 补 `blobToImageData` / `warpAffineImageData`
+
+**遇到的问题与解法**
+
+1. **ManualAlign 的 `outRef` 从未绑定到任何元素**（浏览器实测抓出的真 bug）：overlay img 绑的是手势用的 ref，量测 effect 读的是 `outRef.current` → 永远 null → geom 永不设置 → 「对好了，开始对比」永久禁用。纯函数单测盖不住 ref 接线错误，浏览器验证的价值实证。修复：手势 ref 与量测 ref 统一为一个。
+2. **SSIM 对均匀亮度平移天然钝感**：平坦区域整体变亮/变暗的窗口 SSIM 稳定在 ~0.87（C1 稳定项托底），过不了 0.72 检测线——只有结构性变化（噪声/边缘/部分覆盖）才触发。夹具按此设计：划痕叠加 ±25 颗粒噪声，色块用部分覆盖触发结构项塌缩。检出框会因部分覆盖窗口向外膨胀最多一格（IoU ≈ (d/(d+2))²），夹具尺寸按 d ≥ 8 格设计。
+3. **in-app 浏览器编不动 10.9MB opencv WASM**：预览服上真进 auto 路径 → 页面级操作全部超时（>2 分钟）、browser target 崩溃。auto 路径改由 Node 单测覆盖（真 opencv，6/6 通过）；降级链用 dev 服务器 + initScript 污染 `window.fetch`（URL 含 opencv 一律 reject）强制 load-failed 验证。
+4. **hash 导航不重载**：自动化工具 navigate 到同源 `#/...` 只触发 hashchange，initScript 不注入、SPA 原地切路由 → opencv 又真编一次（页面卡死）。解法：目标 URL 加 query 参数强制整页加载。工具行为，与产品无关。
+5. 测试脚本直连 IndexedDB 需 `open('liudi')` 不带版本号（5173 origin 库已到 v10）。
+
+**遗留**
+
+- auto 配准路径在浏览器里的真 opencv 全链路只有 Node 单测覆盖；in-app 环境无法演示，待真机/外部 Chrome
+- S10 底部按钮暂为「返回点位清单」；「逐条确认」归 T18 判定页
+- 槽位清单暂无「已配对点位 → 查看对比」回看入口（对比过一次后想回看需从对齐页重进）——记给后续打磨
+- AI 段为占位（T16 接 VLM）；低置信度「这条需要你自己确认」在 T17 规则引擎落地
+- 真机清单追加：滑块手感、双指手势、扫描线 60fps、低端机并排降级
+
+**验收数据**
+
+- `npm run test`：**49/49**（新增 diff 7：5 组 IoU 实测 0.909 / 0.800 / 1.000 / 0.922+0.800 / 0.922，全部 > 0.6 ✅；相同图 → `[]` ✅；12 渍 → 截 8 ✅。新增 image 2：subtle 不可用 → 抛指定错误 ✅、可用 → 不抛该错 ✅。新增 register 手动对齐 3 ✅）
+- `npm run lint`：0 错 0 警；`npm run build`：初始 JS **139.80KB gzip**（< 250KB ✅）
+- 产物清单：index.html 0.58 kB；`index-*.js` 443.29 kB（gzip 139.80 kB）；`Compare-*.js` 20.27 kB（gzip 8.11 kB，lazy）；`opencv-*.js` 10,872.78 kB（独立资产）；jspdf / html2canvas / purify / index.es 为 PDF 懒加载块
+- **opencv 隔离 grep**：index.html 0 处 / 主 chunk 0 处 / Compare chunk 1 处 ✅
+- 浏览器实测（dev 5173，fetch 污染强制 load-failed）：自动对齐失败 → 无报错弹窗直接进手动对齐（「自动对齐没成。拖动、双指缩放旋转……」）→ 对好了，开始对比 → canvas 仿射 → diff → 结果页 1 处差异（F-01 强度 54%）；点卡片 Sheet 显示「差异强度 54%，约 775×575 像素。」「AI 描述待接入。自动对比只找出位置，这块是什么由你判断。」；滑块拖动 50%→35% 直写样式；相同图对 → 文案库空态原文「这张照片没看出明显差异——这本身也是好消息。」；控制台零报错
+
+**需要人确认的**
+
+- S10 路由实现为 `/case/:id/compare/:roomId/:slotId/result`（SCREENS S10 字面为 `/case/:id/compare/result`）：槽位上下文是两层对比入口（S08 已确认修法）的必需参数，按 PRD > SCREENS 执行同时上报
+- diff 段「跳过」语义 = 直进失败视图（如实告知「这一步没比成」），不出假结果——是否符合预期？
+- 真机清单：滑块手感、双指手势、扫描线 60fps、低端机并排降级、auto 配准全链路。
+
+---
+
+## 2026-11-16 · T15 FC 代理 + T16 VLM 客户端与降级
+
+**做了什么**
+
+- `functions/vision/index.js`（T15）：FC 自定义运行时 HTTP 代理，**零 npm 依赖**——`handleRequest` 纯逻辑（依赖注入 fetch/时钟/限流表）+ 底部薄装配。行为：origin 白名单（env `ALLOWED_ORIGINS`，未配置只放行 localhost 开发四件套）→ 未授权 401；滑窗限流 20 次/分钟/IP → 429；body ≤ 2 张 dataURL 图（单张 ≤ 2MB）→ 违规 400；密钥 `DASHSCOPE_API_KEY` 只在 env，缺失 500；上游百炼 compatible-mode（默认 `qwen-vl-max`，env `DASHSCOPE_MODEL`）25s 超时 → 504；5xx/坏响应 → 502。**返回体只有逐条校验后的白名单字段，永不含原始模型输出**；模型文本先剥围栏/夹话再 `JSON.parse`，bbox 越界、phenomenon/severity 非法、confidence 出界、description 为空的条目整条丢弃，最多保留 6 条
+- `functions/vision/index.test.js`：node:test 14 条（CORS 预检 / 401 / 405 / 限流与跨 IP / body 校验 / 缺密钥 / 围栏 JSON 混坏条 → 只留合法且字段白名单 / 提示词含「不是裁判」/ 上游 5xx→502、超时→504 / 6 条截断与空 observations / extractJson 容错 / sanitize 拒收清单 / 滑窗数学）；根 `npm test` 改为 vitest + `node --test functions/vision/` 两段
+- `lib/api/vision.ts`（T16）：zod（4.6.7，**PLAN T16 卡点名引入**）按**逐条** safeParse——一条坏只丢一条不连坐；脏词正则（应当赔偿/应该赔偿/需要赔偿/该赔偿/房东责任/租客责任/责任在房东/责任在租客/全额扣除）命中 description 或 cause_hypothesis → 整条丢弃；25s 超时 + 失败重试 1 次（仅网络错/5xx/429 可重试，其余 4xx 不重试）；外层 AbortSignal 支持跳过；**任何失败返回 null 不抛**——降级是常态路径
+- `Compare.tsx` 第三段接线：`正在让 AI 看一眼…`（S09 原文），逐区域并行发裁切图对（入住+退租各一张，**只传裁切不传整图，请求体无地址无姓名**）；8 秒慢提示 + 跳过（abort 全部在途请求，已完成的作废、全部记 null）；0 处差异直接跳过 AI；`VITE_VISION_API` 未配置 → 第三段快速「没做成」进结果页
+- `CompareResult.tsx`：卡片副行在有 AI 时显示「污渍 · 中度」；Sheet 有 AI → 观察原文引用块 + 「AI 只描述看到的现象，不判断该谁负责。」（S12 文案）+ needs_rephoto 提示；无 AI → 「AI 未能识别。这块是什么，由你来选：」+ **10 类现象手选控件**（5×2 网格），选后卡片显示「现象：X（你选的）」
+
+**遇到的问题与解法**
+
+1. **node:test 首轮 3 条失败全是测试自身的错**：限流用例忘注 fetch 替身打了真网络；env 覆盖把白名单也清了（401 顶了 500）；滑窗恢复点算错（80s 才出窗）。修测试，实现未动。
+2. **zod 校验粒度**：整数组 parse 会让一条坏数据连坐全部——与 FR-402「该条被丢弃」不符，改为 envelope 宽 + 逐条 safeParse。
+3. **in-app 浏览器本批完全不可用**：initScript 导航全部超时（昨天同操作正常），改用 evaluate 注入 fetch 污染不生效（疑似隔离世界），深路由一律真下载 opencv → WASM 编译卡死主线程，连 home 页 `document.title` 都超时。**判定为自动化环境退化**（浏览器级操作正常，页面级全灭），T16 的 UI 手选控件本批无法浏览器实测，已记真机清单。lib 层与 FC 层行为全部有单测覆盖。
+
+**遗留**
+
+- FC 端到端（真密钥 → 真百炼）未跑：本地无 `DASHSCOPE_API_KEY`；部署配置写死在 index.js 头注释（3 个 env），README 归 T30 打磨
+- AI 结果目前只活在结果页视图态；T18 判定页落地时随 finding 持久化（`Finding.aiDescription/aiConfidence` 字段契约已就位）
+- 手动对齐路径不做 AI 段（用户已亲手核对位置，Sheet 内手选即可）；若要补齐走 processing 复用段三
+- zod 只进 Compare 懒加载块（8.11→34.84KB gzip），初始 JS 不受影响；若嫌大可换手写校验，等真机包体测量再定
+- 真机清单追加：AI 段真密钥全链路、Sheet 手选交互
+
+**验收数据**
+
+- `npm test`：web **61/61**（新增 vision 客户端 12：正常映射/脏条目跳过/全脏→null/坏字段逐条丢弃/空→null/502 重试成功/双 502→null/400 不重试/外层中止/未配置不发请求/脏词正则命中与不误伤）+ FC **14/14**
+- `npm run lint`：0 错 0 警；`npm run build`：初始 JS **139.81KB gzip**（< 250KB ✅）
+- 产物清单：index.html 0.58 kB；`index-*.js` 443.31 kB（gzip 139.81 kB）；`Compare-*.js` 113.36 kB（gzip 34.84 kB，lazy，含 zod）；`opencv-*.js` 10,872.78 kB（独立资产）；jspdf / html2canvas / purify / index.es 为 PDF 懒加载块
+- opencv 隔离 grep：index.html 0 / 主 chunk 0 / Compare chunk 1 ✅（与上批一致）
+- 浏览器实测：**本批未做成**（自动化环境退化，见「遇到的问题」3）；上一批同路线（poison → 手动对齐 → 结果页）已验过，本批仅新增段三快速失败与 Sheet 手选，风险集中在纯渲染层
+
+**需要人确认的**
+
+- zod 依 PLAN T16 卡引入（4.6.7，进懒加载块不进首屏）——按卡执行，报备一声
+- `DASHSCOPE_API_KEY` / `DASHSCOPE_MODEL` / `ALLOWED_ORIGINS` / 前端 `VITE_VISION_API` 四个 env 的正式值待部署时定；本地无密钥，FC 端到端未验
+
+---
+
+## 2026-11-16 · T17 规则引擎 + T18 判定列表页
+
+**做了什么**
+
+- `domain/rules.ts`（T17）：`judge()` 纯函数，零 React/Dexie/网络依赖。CONTENT §3.2 十八条规则按表序实现（A-01 / B-01…B-09 / C-01…C-05 / C-99 / A-02 / X-01，A-02 执行位见下）；置信度公式照抄 §3.3（base × 证据系数 × AI 系数，0.55 告警线导出为 `CONFIDENCE_WARN`）；导出 `iouBBoxes` + `MATCH_IOU_THRESHOLD`（0.35）供调用方做 A-01 匹配。文本线索（渗水/霉斑/撕扯/泼洒/钉眼/成片/直径 mm）用确定性正则从 `aiDescription` 提取——不做 LLM 判断
+- `domain/rules.test.ts`：36 条。18 条规则每条至少 1 个正例 + 关键反例（泼洒的 dirt 不判 B、霉斑的 discolor 不判 B、moderate 划痕不判 B、租期不足的裂纹不判 B、12mm「钉眼」不判 B）；置信度公式三段；纯函数性（同输入深相等）；第一条命中优先级；IoU 几何
+- `content/legal.ts`（T18 依赖）：8 条法条，原文照抄 CONTENT §1，含一句人话；`findLegal(key)` 供 chip 展开
+- `content/roomTemplates.ts`：SlotTemplate 增加 `surface`（18 个点位逐一标注：墙面→wall、地面→floor、门窗→door/window、表计/油烟机→appliance、台面/洁具/地漏→fixture）——手选现象生成 finding 时 surface 从点位推导，不猜
+- `features/compare/JudgementList.tsx`（T18，路由 `/case/:id/judge`）：四格统计（A/B/C/待确认）；每条 `[ F-nn ]` + 类别徽章（3px 色条）+ 房间·现象 + 一句理由 + 法条 chip（Sheet 展开原文+人话+免责，FR-406 不跳外链）+ 置信度；`confidence < 0.55` 显示「这条需要你自己确认」；改判 Sheet（A/B/C + 备注选填）写 `overriddenByUser`，保存后「已由你改为 X」+ 原判定小字保留（FR-405）；底部「生成定损单」→ 定损页；三态齐全；demo 案例用同一套规则引擎在内存出判定
+- 确认链路：S10 底部主按钮「逐条确认」落地——CompareResult 校验每个区域都有现象（AI 或手选，缺则跳到该 Sheet + 提示），Compare.tsx 生成 Finding（surface 缺省取点位模板，手选 severity 落 moderate）+ 与入住底稿瑕疵 IoU 匹配 + judge 落库（同点位旧结果整批替换）；ComparePage「下一步」改为判定页
+- `lib/idb.ts`：`listCaseFindings`（房间序 + bbox 位序联表）、`replaceSlotFindings`（事务内按 房间×点位×退租相 替换）
+- 修 root `npm test` 的隐性 bug：`node --test functions/vision/` 对带 package.json 的目录只计 1 个测试入口，14 条 FC 测试实际只跑 1 条壳——上一批交付的「14/14」是显式跑文件得出的，目录形式一直是坏的；脚本改为显式指向 `index.test.js`
+
+**问题与解法**
+
+1. **A-02 执行位矛盾（文档）**：CONTENT §3.2 表序里 A-02 排 #2，条件是「底稿有该表面照片但未标此瑕疵」——若按字面序执行，只要有入住照片，#3–#16 的全部 B/C 专属规则（B-01 泛黄污渍…）永远不可达，B 类变死代码，与表格自身存在矛盾。按 §13「先执行同时上报」处理：A-01 → 专属规则（表序）→ C-99 → A-02 → X-01
+2. **绝对面积条件不可观测**：B-01「面积 < 0.5㎡」、C-02「< 1㎡」需要真实世界尺寸，照片管线给不出（bbox 只有归一化比例），硬编一个换算系数就是编数据——舍弃该子条件，靠现象×表面×文本特征判定，宁 C 不 B
+3. **`node --test` 目录形式**：见上，属上一批遗留的真实流程缺陷，本批修复
+4. 浏览器实测环境进一步退化：本批判定页不含 opencv，轻页面照理可冒烟——导航成功、标题正确（应用确实渲染了），但 snapshot/screenshot/evaluate 全部 15s 超时。环境级故障（非本仓代码），判定页 UI 未能在浏览器目验
+
+**遗留**
+
+- T19 真实照片校准（M3 收尾卡）：需要人看图，本批只备好了引擎
+- AI 结果（description/confidence）已随 finding 持久化；`cause_hypothesis` 未持久化（Finding 契约无此字段），文本线索只取自 description
+- 改判在 demo 案例里是内存态，刷新即还原（demo 不落库）
+- 真机清单追加：确认→判定列表全流程、法条 Sheet、改判 Sheet、demo 判定页渲染
+
+**验收数据**
+
+- `npm test`：web **100/100**（61 → 100：rules 36 + format 3）+ FC **14/14**（修复后目录形式真实可复现）
+- `npm run lint`：0 错 0 警；`npm run build`：初始 JS **145.27KB gzip**（< 250KB ✅，+5.46KB 来自规则引擎/法条库/判定页）
+- 产物：`index-*.js` 458.19 kB（gzip 145.27）；`Compare-*.js` 115.00 kB（gzip 35.53，lazy）；opencv 10,872.78 kB 独立资产不变
+- 浏览器冒烟：判定页导航成功（标题/URL 正确），页面级操作超时——UI 细节未目验，见遗留
+
+**需要人确认的**
+
+1. **A-02 执行位**（上面问题 1）：按「专属规则优先」执行，理由模板与类别（C）不变。若你认可，CONTENT §3.2 表序说明由你顺手补一句即可
+2. **绝对面积条件舍弃**（问题 2）：B-01/C-02 的 0.5㎡/1㎡ 上限当前不参与判定
+3. **手选 finding 的 severity 落 moderate**（Finding 契约必填，UI 不展示该字段）：副作用是「手选裂纹 + 租期 ≥24 月」会命中 B-04 判 B；若你认为手选应一律不判 B，我把 severity 相关 B 规则加「仅 AI 来源」门槛
+4. **PLAN §6 的 ctx（contractClause）未实现**：无规则使用，且 §3.4 明确不判条款效力
+
+---
+
+## 2026-11-16 · T20 扣款拆解 + T21 价格库
+
+**做了什么**
+
+- `domain/parse.ts`（纯函数，18 单测）：微信扣款文本 → 条目。先识别「一共/合计/总共/总计」行为总数（statedTotalFen，用于总和校验，不进条目）；其余行剥序号（1. / 2、/ 3）/ 一、）后拆条目：`¥`/`元`/`块钱`/`块`（块后非汉字，防「3 块地板」）后缀金额 + 落在金额覆盖区之外的裸数字，一行多金额按切分段落各成一条；量词/日期后缀排除表 + 「押金/月租/租金/定金」lookbehind 排除非扣款数；金额 > 100 万元丢弃；label 清洗（悬空动词「算/要/加…」、首尾标点、40 字截断、无名目兜底「未注明名目」）；rawText ≤ 500 字（FR-501）；条目上限 20
+- `functions/extract/`：第二个 FC 函数（/api/extract），与 vision 同套安全模式（origin 白名单 / 20 次/分/IP / 文本 ≤ 2000 字 / 上游 25s / 响应不含原始模型输出）；qwen-plus，系统提示词禁判责、禁把总数当条目；服务端 元→整数分 + 逐条白名单清洗，11 单测
+- `lib/api/extract.ts`：客户端，vision 同款（zod 逐条校验、失败重试 1 次、任何失败返 null 不抛），8 单测；**由 Parse.tsx 动态 import**——zod 因此留在懒加载块
+- `features/valuation/Parse.tsx`（S13，替换占位 ValuePage）：自适应高度 textarea（2000 字上限）+ 手动加条（名目/金额）+ 三态（拆解中/失败「这段没看懂，你可以手动加几条。」/拆完预览）+ `[ 01 ]` 序号行 + 合计行 + 总数一致性提示 + 免责声明。文案逐字取自 SCREENS S13
+- `content/prices.ts` + 6 单测：CONTENT §4 全部 30 项，元→分，life「—」→ null（不折旧）；全部 unverified: true、source 空串（不编造来源），updatedAt 2026-11-15
+
+**FR-502 编排**（Parse.tsx 内）：先跑本地正则 → 正则空手 **或** 条目合计 ≠ statedTotalFen 才调 LLM → LLM 条目合计对不上总数（或没写总数时直接采信）→ 对不上回退正则结果 → 仍空手进失败态转手动。未配置 VITE_EXTRACT_API 时正则结果直出（演示/离线零依赖）
+
+**问题与解法**
+
+1. **zod 被拖进主包**：Parse 静态 import extract 客户端 → 初始 JS 145.27→174.52KB。LLM 拆解是兜底路径，改为 `await import('@/lib/api/extract')`，主包回到 **147.46KB**（extract 模块与 Compare 共享 zod 懒块）
+2. **正则三连修**（单测抓的）：多金额行 label/rawText 需从上一个金额末尾切（原先串上文）；「算」字悬空动词要在标点剥离**前**去（「……不见了，算」残留逗号）；`块` 补进量词排除表
+3. cleanLabel 首版字符类里未转义的 `]` 会造成模块加载期 SyntaxError——改为字符串拼正则
+
+**遗留**
+
+- 拆解结果本批只做**预览**（S14 未建）；落库（deductions 表）与定损引擎接线在 T22/T23 批，不预写假字段
+- 价格库 30 项全部待核价（CONTENT §4.8 P4 任务，11/25 前）；`content/prices.test.ts` 的「全部 unverified」断言在核价后需同步更新
+- 浏览器冒烟未做（环境连续两日页面级操作超时，不再烧时间）；真机清单追加：S13 粘贴→拆解→手动加条→删除、demo 案例定损页、2000 字上限提示
+
+**验收数据**
+
+- `npm test`：web **132/132**（+32：parse 18 + prices 6 + extract 客户端 8）+ FC **25/25**（vision 14 + extract 11）
+- `npm run lint`：0 错 0 警；`npm run build`：初始 JS **147.46KB gzip**（< 250KB ✅，+2.19KB）；`Compare-*.js` 115.00 kB（gzip 35.53，lazy，含 zod + extract 客户端）；opencv 10,872.78 kB 独立资产不变
+- FR-502 演示验收：DEMO §1.1 七行原文 → 正则路径拆出 **5 条**，合计 **320,000 分 = ¥3,200**，总数行识别 320,000，全部离线完成
+
+**需要人确认的**
+
+1. **DEMO §1.2 与价格库对不上**（影响 T22 定损引擎的演示数字，两处）：
+   - 门锁：CONTENT §4.3 `lock-set` mid **260** → 260 × (1 − 14/96) = **222**；DEMO §1.2 写 **235**（对应 mid 275）
+   - 缺失物品：价格库**没有**凉席/床单/卧具项（DEMO 的 mid 180 / life 6 年无出处）；按现库 T22 会把它记为「暂无参考价，按房东报价暂记」，DEMO 的 **145** 算不出来 → 合计 380 也对不上（会是 222 + 暂记）
+   - 建议：P4 核价时补「卧具（凉席/床单等）」项、lock-set 按核价结果定 mid，然后由你同步 DEMO §1.2 的三个数字；CONTENT 事实我不代改
+
+---
+
+## 2026-11-16 · T22 定损引擎 + T23 定损页（建议层）
+
+**做了什么**
+
+- `domain/valuation.ts`（纯函数，25 单测）：
+  - **匹配（FR-503）**：32 条正则匹配表，按「损伤/服务」定向而非房东提的处理方式——「印子和钉眼…整面重刷」仍落 `wall-patch`，FR-505 的 4.0 倍才成立；顺序即优先级（先家电/保洁等具体服务，后墙面/地面，兜底「墙/漆」）；表内 id 在价格库缺失时向后匹配、最后落 unmatched（为 P4 补卧具项留位：`bedding-set` 已在匹配表里）
+  - **折旧（FR-504）**：`residual = 1 − min(1, months/(12×life))`；`liable = round(mid × residual / 100) × 100`——在**元**上取整后存分（价格库口径是元，CONTENT 公式在元上 round，这样 P4 把 lock-set mid 核到 275 后 235 精确复现，不在分上出现假精度）；封顶不超过主张额；C 责任比例取 1（共有情形无数据源不细分）
+  - **虚高（FR-505）**：主张 > 市场上限 × 2 → `inflatedRatio = 主张 / high`
+  - **三数（FR-506）**：每条主张只落一个桶——成立项 liable 进应付、超出部分并进不应付；不成立整条进不应付；争议整条进争议；恒等式 应付+不应付+争议=主张总额（单测断言）
+  - **状态判定只读上游 judgements**：低置信（< 0.55）且未经用户确认的判定**不驱动金额**（与判定页待确认线一致），只进争议；加氟无 C → 712 不成立；保洁/清洗类（life=null）无 C → reg-10 凭证不成立；有价无判定 → 争议；无价 → 争议 + 暂记
+- `features/valuation/suggest.ts` + 15 单测（FR-508 建议层）：六种状态各一句模板（用「建议/最多」）；`validateAiSentence` 做**数字回填校验**（全句数字必须落在 allowedSet = 区间/建议价/主张额的元字面 + 月数/年限/数量，否则整句丢弃回退模板）+ 判决式措辞黑名单（「法院会判/一定能要回/必赢/保证退款/百分百」→ 拒）；纯函数
+- `features/valuation/Valuation.tsx`（S14）：三大数字横排（应付衬线最大 accent）+ 一句话（应付>0「该赔的 N，一分不少。」/ 全不成立「这些项目都站不住。」/ 有争议「能定的还没定下来…」）+ 真实 `<table>`（扣款项/房东/判定/应付，行可展开六行块：现象/定性/依据/市场/折旧/建议）+ 虚高「高于市场 4.0 倍」小字 + unmatched/disputed 注记 + 免责声明；金额右对齐等宽；每行法条 chips 可展开原文+人话
+- `features/case/LegalRefChips.tsx`：法条角标+Sheet 抽出为共用组件（本批 S14 先用；S11 判定页暂保留内联实现，不动已完成模块）
+- **deductions 表用途定案**：只存拆解条目（`parsedToItems` 留零估值字段），S14 每次用**最新判定现算**——判定改了不用重新拆解，建议层天然只读不回写（FR-508 断言由纯函数结构保证）；S13 拆解成功且总数对上 → 落库 + toast「拆出 N 条，合计 ¥X」+ 跳 S14；对不上留在 S13 显示差异 + 「拿这几条去定损」按钮
+- `demo/demoCase.ts` 加 `demoDeductionText`（DEMO §1.1 原文）：S14 演示态用真实拆解+引擎现算
+
+**问题与解法**
+
+1. `Source.months` 与引擎 `tenancyMonths` 字段名不一致被 tsc 抓住，统一为后者
+2. 建议层首版只挡集合外数字，「法院会判你只付 235 元」漏过（数字合法）——补措辞黑名单，产品立场红线不靠下游 UI 把守
+3. 浏览器冒烟仍是页面级操作超时（连续第三日降级）：navigate 成功 + snapshot/screenshot 双超时，UI 正确性由 tsc strict + 172 条单测背书，真机点验留清单
+
+**验收数据**
+
+- `npm test`：web **172/172**（+40：valuation 25 + suggest 15）+ FC **25/25**；`npm run lint` 0 错 0 警
+- `npm run build`：初始 JS **152.71KB gzip**（< 250 ✅，+5.25KB：引擎+价格表+S14）；zod 仍在懒加载块（Valuation 不碰 lib/api/extract）
+- **FR-504 复现**（单测）：注入修正价格库（lock mid 275 + 卧具 180/life 6）+ 已确认判定 → 门锁 **235**、卧具 **145**、应付 **380**、不应付 **2,820**、争议 0，与 PRD FR-504 / DEMO §1.2 **逐位一致**——公式与文档无矛盾，差的只是价格项（待定项 #5 证据补齐）
+- **演示现状**（现行价格库 + 低置信判定）：应付 0 / 不应付 900 / 争议 2,300（墙面与门锁因判定待确认进争议，缺失物暂记）——诚实输出，等 P4 核价 + 演示判定确认后自动靠拢 §1.2
+- FR-505：墙面 1,400 vs wall-patch high 350 → **4.0 倍** ✅
+
+**没做的**
+
+- 演示态判定页的改判不跨页同步（内存态各自维护）；真实案件走 Dexie 天然同步，演示完整故事线归 T28 预烘焙
+- e2e 未跑（环境无可用浏览器，同前两批）；真机清单追加：S13 对不上总数的手动补条流、S14 行展开六行块、法条 Sheet、demo 定损页三大数字
+
+## 2026-11-16 · T24 信件生成 + T25 房东模拟
+
+**做了什么**
+
+- `domain/numcheck.ts` + 7 单测（FR-508 = FR-602 **同一套校验**抽出共享）：`numberTokens`（归一化 ¥/￥/逗号/空白）、`numbersWithin`、`allowedSetFor`（分→元字面 + 计数）、`FORBIDDEN_PHRASES`（法院会判/一定能要回/必赢/保证退款/百分百）；`suggest.validateAiSentence` 改为委托它，行为不变（15 单测仍绿）
+- `content/letterTemplates.ts`（FR-603/604）：9 模板 = 3 语气 × 3 渠道；模板**不碰数字**——金额全部由 compose 传格式化字符串；`renderLetter(facts, tone, channel, summary?)` 的**说明段可替换**（微信开头 / 正式函事由 / 调解申请争议事项），LLM 只重写这一段，其余行模板定死；固定结尾句、免责、诉求行照 SCREENS S15
+- `features/negotiate/compose.ts` + 12 单测（FR-601/602）：`composeTemplate` 纯同步必成；`composeWithAi` 模板先行 → LLM 润色说明段（≤180 字）→ 四道校验（长度 / 措辞黑名单 / 幽灵引用 `[DF]-xx` 必须在 citations 里 / **数字回填**`letterAllowedSet`）任一不过 → 整段丢弃回退模板，用户无感（console.debug）；`letterAllowedSet` 白名单由 domain 产出：押金/租金/三数/退款/每项主张·应付·估价区间（元）+ 月数/7 天/35 条号
+- `functions/wording/`（FC，与 extract 同安全模式）+ 14 单测：`task=polish`（重写说明段，禁新增数字/法条/承诺，temp 0.3）与 `task=landlord`（人格扮演 + 破绽 + stance，禁法条/人身攻击，temp 0.7）；限流 20/min/IP、25s 上游超时、origin 白名单、字段白名单校验（修了一个真 bug：polish 校验失败时 `{task, ...null}` 仍为 truthy 会放过非法 body——改为 validatePolish 自带 task 并显式拒绝超长 section）
+- `lib/api/wording.ts` + 9 单测：polish/landlord 共用端点客户端，zod 信封留在懒加载块、25s 超时、重试 1 次（网络/429/5xx）、任何失败返回 null；`landlordLawOk`（S16 兜底）：回复里出现的《XX》第 N 条必须在 `content/legal.ts` 存在（容忍 reg-10 标题带施行日期后缀），编造法条 → 整条拒收
+- `features/negotiate/NegotiatePage.tsx`（S15）：语气/渠道分段控件（默认中性/微信）+ 等宽可编辑预览（用户改动优先，润色到达不覆盖已编辑文本）+ 引用证据角标条 + `复制全文`（clipboard API + execCommand 回退，FR-607；真实案件存 `db.letters`）+ `先练一遍`（带正文跳模拟）+ 免责页脚；模板即时渲染，润化静默替换
+- `features/negotiate/Roleplay.tsx`（S16，**lazy 路由**——静态引 zod 不能进首屏）：三种人格（开场白照抄 CONTENT §6.1，零 LLM 启动）→ 气泡对话，破绽点评挂在**它点评的那句租客气泡下方**；最多 3 轮；每轮失败「这句没接上：AI 没能回应。」+ 重试（三态齐）；总结「守住了 N 个关键点，让出了 M 个不该让的」由**代码统计 stance**（数字不经 LLM）；未配置端点显示联网提示不白屏
+- `features/valuation/useValuationInput.ts`：S14/S15/S16 共用输入源 hook（demo 内存 / Dexie liveQuery，现算 valuation），Valuation.tsx 改用（行为不变）；顺带补出 caseData 供信件取 alias/rentMonthly
+- 根 `package.json`：workspaces + test 挂上 `functions/wording`
+
+**验收数据**
+
+- `npm test`：web **200/200**（+28：numcheck 7 + compose 12 + wording 9）+ FC **39/39**（vision/extract 25 不变 + wording 14）；`npm run lint` 0 错 0 警
+- `npm run build`：初始 JS **155.85KB gzip**（< 250 ✅，+3.14KB：模板+compose+S15）；zod 25.90KB 在独立懒加载块；Roleplay 单独 chunk 1.08KB
+- **FR-602 用例**（单测）：LLM 返回集合外数字（9999 元）→ 整段丢弃回退模板 ✅；禁语 / 超长 / 幽灵引用（D-03 不在 citations）同样回退 ✅
+- **FR-603 断言**（单测）：3 渠道下三种语气的数字 token 序列**逐位一致**——为此把强硬语气结尾的「第 35 条」从信里拿掉（条号数字会多出来破坏一致性；条号仍出现在争议项依据里，35 在白名单）
+- FR-601：9 组合全部渲染（结尾句/免责/主题齐备，body 无禁语）✅；FR-604：微信无称谓短句 / 正式函事由+落款 / 调解申请双方占位 ✅
+- landlord 编造法条（《物权法》第 99 条 / 错法名的真实条号）→ 客户端拒收返回 null ✅
+
+**问题与解法**
+
+1. FC polish 校验 `{task, ...null}` truthy 漏放 → validatePolish 返回值自带 task，section 超 2000 字显式 400（截断放行还会漏进上游调用，单测抓住）
+2. firm 语气 ASK 句引《住房租赁条例》第 35 条 → FR-603 数字一致性被破坏 → 结尾改「我将申请调解」不带条号
+3. FR-602 验收示例「2000 元」在演示案里恰好是合法数字（主张总额 2000）——测试改用真正集合外的数，校验逻辑本身不变
+
+**没做的**
+
+- 浏览器冒烟仍不可用（browser-use 降级第四日）：S15/S16 真机清单——语气/渠道切换、复制 toast、iOS 上 execCommand 回退、3 轮后总结、破绽点评位置、断网时 wording 降级文案
+- Roleplay 的 location.state.body 刷新后丢失 → 回退用模板摘要重新组信（不阻塞，行为已定义）
+
+**需要人确认的**
+
+- 无（本批未动判定/金额；useValuationInput 抽取为 S14/S15/S16 共享属同批基础设施，S14 行为零变化）

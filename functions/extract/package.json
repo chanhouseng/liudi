@@ -1,0 +1,7 @@
+{
+  "name": "@liudi/functions-extract",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -113,7 +113,7 @@ export default function ComparePage() {
       stepName="对比"
       backTo={id ? `/case/${id}/capture` : '/'}
       backLabel="返回案件"
-      next={id ? { to: `/case/${id}/value`, label: '下一步：定损' } : undefined}
+      next={id ? { to: `/case/${id}/judge`, label: '下一步：判定' } : undefined}
     >
       {isDemo ? (
         <DemoCompare />

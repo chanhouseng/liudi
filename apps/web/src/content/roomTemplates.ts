@@ -1,9 +1,11 @@
-import type { RoomKind } from '@/domain/types'
+import type { RoomKind, Surface } from '@/domain/types'
 
 export interface SlotTemplate {
   id: string
   label: string
   why: string
+  // 点位对应的表面类别：手选现象生成 finding 时，surface 从这里取。
+  surface: Surface
 }
 
 export interface RoomTemplate {
@@ -19,54 +21,54 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     kind: 'entry',
     label: '玄关',
     slots: [
-      { id: 'door', label: '门与门锁', why: '好不好转，只有现在拍得清' },
-      { id: 'floor', label: '地面', why: '划痕和烫痕要拍清反光' },
-      { id: 'meter-e', label: '电表', why: '退租那天按这个数算' },
+      { id: 'door', label: '门与门锁', why: '好不好转，只有现在拍得清', surface: 'door' },
+      { id: 'floor', label: '地面', why: '划痕和烫痕要拍清反光', surface: 'floor' },
+      { id: 'meter-e', label: '电表', why: '退租那天按这个数算', surface: 'appliance' },
     ],
   },
   {
     kind: 'living',
     label: '客厅',
     slots: [
-      { id: 'wall-n', label: '墙面-北', why: '污渍和钉眼最容易扯皮' },
-      { id: 'wall-s', label: '墙面-南', why: '家具靠墙的压痕要留档' },
-      { id: 'floor', label: '地面', why: '划痕和烫痕要拍清反光' },
-      { id: 'window', label: '窗户与纱窗', why: '纱窗破没破，白天拍才清楚' },
+      { id: 'wall-n', label: '墙面-北', why: '污渍和钉眼最容易扯皮', surface: 'wall' },
+      { id: 'wall-s', label: '墙面-南', why: '家具靠墙的压痕要留档', surface: 'wall' },
+      { id: 'floor', label: '地面', why: '划痕和烫痕要拍清反光', surface: 'floor' },
+      { id: 'window', label: '窗户与纱窗', why: '纱窗破没破，白天拍才清楚', surface: 'window' },
     ],
   },
   {
     kind: 'bedroom',
     label: '卧室',
     slots: [
-      { id: 'wall-n', label: '墙面-北', why: '污渍和钉眼最容易扯皮' },
-      { id: 'floor', label: '地面', why: '划痕和烫痕要拍清反光' },
-      { id: 'window', label: '窗户与窗帘', why: '窗帘杆和轨道要留档' },
+      { id: 'wall-n', label: '墙面-北', why: '污渍和钉眼最容易扯皮', surface: 'wall' },
+      { id: 'floor', label: '地面', why: '划痕和烫痕要拍清反光', surface: 'floor' },
+      { id: 'window', label: '窗户与窗帘', why: '窗帘杆和轨道要留档', surface: 'window' },
     ],
   },
   {
     kind: 'kitchen',
     label: '厨房',
     slots: [
-      { id: 'counter', label: '台面与水槽', why: '油渍和水垢，退租时最容易扯皮' },
-      { id: 'meter-gas', label: '燃气表', why: '退租那天按这个数算' },
-      { id: 'hood', label: '油烟机', why: '滤网油垢程度要留底' },
+      { id: 'counter', label: '台面与水槽', why: '油渍和水垢，退租时最容易扯皮', surface: 'fixture' },
+      { id: 'meter-gas', label: '燃气表', why: '退租那天按这个数算', surface: 'appliance' },
+      { id: 'hood', label: '油烟机', why: '滤网油垢程度要留底', surface: 'appliance' },
     ],
   },
   {
     kind: 'bath',
     label: '卫生间',
     slots: [
-      { id: 'fixture', label: '洁具', why: '釉面划痕和黄渍要拍清' },
-      { id: 'wall-tile', label: '墙面瓷砖', why: '霉缝和空鼓最容易扯皮' },
-      { id: 'drain', label: '地漏与排水', why: '排水快不慢，现在试一次' },
+      { id: 'fixture', label: '洁具', why: '釉面划痕和黄渍要拍清', surface: 'fixture' },
+      { id: 'wall-tile', label: '墙面瓷砖', why: '霉缝和空鼓最容易扯皮', surface: 'wall' },
+      { id: 'drain', label: '地漏与排水', why: '排水快不慢，现在试一次', surface: 'fixture' },
     ],
   },
   {
     kind: 'balcony',
     label: '阳台',
     slots: [
-      { id: 'floor', label: '地面', why: '晾晒痕迹和地漏要拍清' },
-      { id: 'meter-w', label: '水表', why: '退租那天按这个数算' },
+      { id: 'floor', label: '地面', why: '晾晒痕迹和地漏要拍清', surface: 'floor' },
+      { id: 'meter-w', label: '水表', why: '退租那天按这个数算', surface: 'appliance' },
     ],
   },
 ]

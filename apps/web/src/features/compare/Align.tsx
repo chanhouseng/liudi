@@ -183,7 +183,7 @@ export default function Align() {
         },
         'move_out',
       )
-      navigate(`/case/${id}/compare`)
+      navigate(`/case/${id}/compare/${roomId}/${slotId}/result`)
     } catch {
       setSaveError(true)
     } finally {
